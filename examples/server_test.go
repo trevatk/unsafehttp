@@ -33,7 +33,16 @@ func postCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type y struct {
+		Name string `json:"name"`
+	}
+
+	user := &y{Name: newUser.Name}
+
 	w.SetStatus(http.StatusCreated)
+	w.SetHeader("Content-Type", "application/json")
+
+	json.NewEncoder(w).Encode(user)
 }
 
 func Example_server() {
