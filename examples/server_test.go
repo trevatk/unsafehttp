@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	http "github.com/trevatk/safehttp"
+	http "github.com/trevatk/unsafehttp"
 )
 
 func health(w http.ResponseWriter, r *http.Request) {
