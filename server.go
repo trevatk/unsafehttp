@@ -92,14 +92,21 @@ OUTER:
 			// listener timeout continue loop
 			continue
 		} else if err != nil {
-			writeError(conn, StatusInternalServer, err)
+			writeError(conn, StatusInternalServer)
 		}
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if err := s.handleConn(ctx, conn); err != nil {
-				// writeError(conn, err)
+				switch err {
+				case ErrUnsupportedHttpVersion:
+					writeError(conn, StatusHTTPVersionNotSupported)
+				case ErrRouteNotFound:
+					writeError(conn, StatusNotFound)
+				default:
+					writeError(conn, StatusInternalServer)
+				}
 			}
 		}()
 	}
@@ -117,27 +124,30 @@ func (s *unsafeServer) handleConn(ctx context.Context, conn net.Conn) error {
 
 	req, err := parseRequestFromBuf(r)
 	if err != nil {
-		return fmt.Errorf("unable to parse request from buffer: %w", err)
+		return err
 	}
 	req.ctx = ctx
 
 	rw := newResponseWriter(conn, req)
 
 	if handle, ok := s.mux.matchRoute(req); ok {
+		var wg sync.WaitGroup
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			handle(rw, req)
 			if err := rw.writeResponse(); err != nil {
-				writeError(rw.conn, StatusInternalServer, err)
+				writeError(rw.conn, StatusInternalServer)
 			}
 		}()
+		wg.Wait()
+		return nil
 	}
 
-	// writeError(conn, )
-
-	return nil
+	return ErrRouteNotFound
 }
 
-func writeError(conn net.Conn, code StatusCode, err error) {
+func writeError(conn net.Conn, code StatusCode) {
 	errMsg := fmt.Sprintf("%s %d %s\r\n\r\n\r\n", "HTTP/1.1", code, code.String())
 	conn.Write([]byte(errMsg))
 }
