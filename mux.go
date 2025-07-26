@@ -5,7 +5,7 @@ import (
 )
 
 type route struct {
-	method   string
+	method   Method
 	pattern  string
 	segments []string
 }
@@ -24,34 +24,32 @@ func NewServeMux() *Mux {
 
 // Get
 func (m *Mux) Get(pattern string, handler func(ResponseWriter, *Request)) {
-
-	// normalize pattern
-	pattern = normalizePath(pattern)
-	// create route object with
-	// method
-	// pattern
-	r := &route{
-		method:  "GET",
-		pattern: pattern,
-	}
-
-	r.segments = splitPattern(pattern)
-	m.routes[r] = Handler(handler)
+	m.addRoute(&route{method: "GET", pattern: pattern}, handler)
 }
 
 // Post
 func (m *Mux) Post(pattern string, handler func(ResponseWriter, *Request)) {
-	// normalize pattern
-	pattern = normalizePath(pattern)
-	// create route object with
-	// method
-	// pattern
-	r := &route{
-		method:  "POST",
-		pattern: pattern,
-	}
+	m.addRoute(&route{method: "POST", pattern: pattern}, handler)
+}
 
-	r.segments = splitPattern(pattern)
+// Put
+func (m *Mux) Put(pattern string, handler func(ResponseWriter, *Request)) {
+	m.addRoute(&route{method: "PUT", pattern: pattern}, handler)
+}
+
+// Patch
+func (m *Mux) Patch(pattern string, handler func(ResponseWriter, *Request)) {
+	m.addRoute(&route{method: "PATCH", pattern: pattern}, handler)
+}
+
+// Delete
+func (m *Mux) Delete(pattern string, handler func(ResponseWriter, *Request)) {
+	m.addRoute(&route{method: "DELETE", pattern: pattern}, handler)
+}
+
+func (m *Mux) addRoute(r *route, handler func(ResponseWriter, *Request)) {
+	r.pattern = normalizePath(r.pattern)
+	r.segments = splitPattern(r.pattern)
 	m.routes[r] = Handler(handler)
 }
 

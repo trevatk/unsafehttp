@@ -15,8 +15,9 @@ const (
 )
 
 type readLine struct {
-	method          Method
-	target, version string
+	method  Method
+	target  string
+	version SupportedVersion
 }
 
 // Headers
@@ -31,8 +32,8 @@ type Params map[string]string
 
 // Request
 type Request struct {
-	Method  string
-	Version string
+	Method  Method
+	Version SupportedVersion
 	Path    string
 	Headers Headers
 	Params  Params
@@ -52,7 +53,7 @@ func parseRequestFromBuf(reader *bufio.Reader) (*Request, error) {
 		return nil, fmt.Errorf("buf.ReadBytes: %w", err)
 	}
 
-	rl, err := parseReadLine(fl)
+	rl, err := parseStatusLine(fl)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse read line: %w", err)
 	}
@@ -68,7 +69,7 @@ func parseRequestFromBuf(reader *bufio.Reader) (*Request, error) {
 	}
 
 	return &Request{
-		Method:  string(rl.method),
+		Method:  rl.method,
 		Version: rl.version,
 		Path:    rl.target,
 		Headers: headers,
@@ -77,7 +78,7 @@ func parseRequestFromBuf(reader *bufio.Reader) (*Request, error) {
 	}, nil
 }
 
-func parseReadLine(line []byte) (readLine, error) {
+func parseStatusLine(line []byte) (readLine, error) {
 	lineAsStr := string(line)
 
 	// split line by SP
@@ -86,14 +87,20 @@ func parseReadLine(line []byte) (readLine, error) {
 		return readLine{}, fmt.Errorf("invalid number of fields in first line %d", len(s))
 	}
 
-	// parse string to method
-	var m Method
-	m = m.fromString(s[0])
+	method, ok := methodfromString(s[0])
+	if !ok {
+		return readLine{}, fmt.Errorf("unsupported method: %s", s[0])
+	}
+
+	ver, ok := httpVersionFromString(s[2])
+	if !ok {
+		return readLine{}, fmt.Errorf("unsupported http version: %s", s[2])
+	}
 
 	return readLine{
-		method:  m,
+		method:  method,
 		target:  strings.TrimSpace(s[1]),
-		version: strings.TrimSpace(s[2]),
+		version: ver,
 	}, nil
 }
 
