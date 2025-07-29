@@ -135,7 +135,7 @@ func (s *unsafeServer) handleConn(ctx context.Context, conn net.Conn) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			handle(rw, req)
+			handle.ServeHTTP(rw, req)
 			if err := rw.writeResponse(); err != nil {
 				writeError(rw.conn, StatusInternalServer)
 			}
