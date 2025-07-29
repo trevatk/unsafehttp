@@ -1,4 +1,15 @@
 package unsafehttp
 
 // Handler
-type Handler func(ResponseWriter, *Request)
+type Handler interface {
+	ServeHTTP(ResponseWriter, *Request)
+}
+
+type handler struct {
+	fn func(ResponseWriter, *Request)
+}
+
+// ServeHTTP
+func (h *handler) ServeHTTP(w ResponseWriter, r *Request) {
+	h.ServeHTTP(w, r)
+}

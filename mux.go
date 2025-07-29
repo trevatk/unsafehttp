@@ -22,6 +22,20 @@ func NewServeMux() *Mux {
 	}
 }
 
+// Chain
+func (m *Mux) Chain(interceptors ...Middleware) {
+	// build middleware chain
+	// iterate over intercepors and create a chain of
+	// middleware calls for each route
+	for route, _ := range m.routes {
+		for _, it := range interceptors {
+			// do not range route
+			// we need handler func to persist with each iteration
+			m.routes[route] = it(m.routes[route])
+		}
+	}
+}
+
 // Get
 func (m *Mux) Get(pattern string, handler func(ResponseWriter, *Request)) {
 	m.addRoute(&route{method: "GET", pattern: pattern}, handler)
@@ -47,10 +61,10 @@ func (m *Mux) Delete(pattern string, handler func(ResponseWriter, *Request)) {
 	m.addRoute(&route{method: "DELETE", pattern: pattern}, handler)
 }
 
-func (m *Mux) addRoute(r *route, handler func(ResponseWriter, *Request)) {
+func (m *Mux) addRoute(r *route, handlerFunc func(ResponseWriter, *Request)) {
 	r.pattern = normalizePath(r.pattern)
 	r.segments = splitPattern(r.pattern)
-	m.routes[r] = Handler(handler)
+	m.routes[r] = &handler{fn: handlerFunc}
 }
 
 // iterate over routes and match request path to mux routes
