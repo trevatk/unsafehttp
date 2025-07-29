@@ -27,7 +27,7 @@ func (m *Mux) Chain(interceptors ...Middleware) {
 	// build middleware chain
 	// iterate over intercepors and create a chain of
 	// middleware calls for each route
-	for route, _ := range m.routes {
+	for route := range m.routes {
 		for _, it := range interceptors {
 			// do not range route
 			// we need handler func to persist with each iteration

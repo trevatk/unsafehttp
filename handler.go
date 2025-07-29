@@ -11,5 +11,5 @@ type handler struct {
 
 // ServeHTTP
 func (h *handler) ServeHTTP(w ResponseWriter, r *Request) {
-	h.ServeHTTP(w, r)
+	h.fn(w, r)
 }

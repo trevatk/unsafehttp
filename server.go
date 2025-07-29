@@ -64,7 +64,7 @@ func (s *unsafeServer) Serve(ctx context.Context) error {
 }
 
 func (s *unsafeServer) listen(ctx context.Context, lis *net.TCPListener) {
-	defer lis.Close()
+	defer lis.Close() // nolint: errcheck
 
 	var wg sync.WaitGroup
 
@@ -149,5 +149,5 @@ func (s *unsafeServer) handleConn(ctx context.Context, conn net.Conn) error {
 
 func writeError(conn net.Conn, code StatusCode) {
 	errMsg := fmt.Sprintf("%s %d %s\r\n\r\n\r\n", "HTTP/1.1", code, code.String())
-	conn.Write([]byte(errMsg))
+	conn.Write([]byte(errMsg)) // nolint: gosec,errcheck
 }

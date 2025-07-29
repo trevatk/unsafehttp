@@ -42,7 +42,7 @@ func postCreateUser(w http.ResponseWriter, r *http.Request) {
 	w.SetStatus(http.StatusCreated)
 	w.SetHeader("Content-Type", "application/json")
 
-	json.NewEncoder(w).Encode(user)
+	json.NewEncoder(w).Encode(user) // nolint: errcheck,gosec
 }
 
 func Example_server() {
@@ -67,5 +67,5 @@ func Example_server() {
 
 	s := http.NewServer(serverOpts...)
 
-	s.Serve(ctx)
+	s.Serve(ctx) // nolint: errcheck,gosec
 }
