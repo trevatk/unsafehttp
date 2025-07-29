@@ -1,0 +1,57 @@
+version: 2
+
+run:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  timeout: 5m
+  skip-files:
+    - _test\\.go$
+  skip-dirs:
+    - examples
+
+output:
+  format: colored-line-number
+  print-linter-name: false
+
+linters:
+  disable-all: true
+  enable:
+    - gosec
+    - staticcheck
+    - errcheck
+    - gocritic
+
+linters-settings:
+  gosec:
+    severity: "medium"
+    confidence: "medium"
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+
+issues:
+  generated: true
+  exclude-rules:
+    - path: _test\\.go$
+      linters:
+        - errcheck
+        - gosec
+        - staticcheck
+        - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gci
+
+  settings:
+    goimports:
+      local-prefixes: "github.com/trevatk/unsafehttp"
+    gci:
+      sections:
+        - standard
+        - default
+        - blank

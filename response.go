@@ -87,7 +87,7 @@ func (w *writer) writeResponse() error {
 	if err != nil {
 		return fmt.Errorf("unable to write response body: %w", err)
 	}
-	defer w.conn.Close()
+	defer w.conn.Close() // nolint: errcheck
 
 	return nil
 }

@@ -8,7 +8,7 @@ func TestMux(t *testing.T) {
 	mux := NewServeMux()
 	health := func(w ResponseWriter, r *Request) {
 		w.SetStatus(StatusOK)
-		w.Write([]byte("OK"))
+		w.Write([]byte("OK")) // nolint: errcheck,gosec
 	}
 	t.Run("GET", func(t *testing.T) {
 		mux.Get("/health", health)
