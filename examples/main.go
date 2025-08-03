@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"log/slog"
 	"os/signal"
@@ -59,14 +60,24 @@ func main() {
 		}
 	}()
 
-	mux := unsafehttp.NewServeMux()
+	r := unsafehttp.NewRouter()
+	r.Group("/api/1.0", func(rr unsafehttp.Router) {
+		rr.Group("/users", func(users unsafehttp.Router) {
+			users.Post("/", postCreateUser)
+			rr.Walk(func(s1, s2 string, hf unsafehttp.HandlerFunc) {
+				fmt.Printf("%s %s\n", s1, s2)
+			})
+		})
+	})
+	r.Get("/health", health)
 
-	mux.Post("/api/v1/users", postCreateUser)
-	mux.Get("/health", health)
+	r.Walk(func(s1, s2 string, hf unsafehttp.HandlerFunc) {
+		fmt.Printf("method: %s, pattern: %s\n", s1, s1)
+	})
 
 	serverOpts := []unsafehttp.ServerOption{
 		unsafehttp.WithAddr("localhost:8181"),
-		unsafehttp.WithMux(mux),
+		unsafehttp.WithRouter(r),
 	}
 
 	s := unsafehttp.NewServer(serverOpts...)

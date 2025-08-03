@@ -21,7 +21,7 @@ type Server interface {
 }
 
 type unsafeServer struct {
-	mux *Mux
+	r Router
 
 	bufPool         sync.Pool
 	writerPool      sync.Pool
@@ -91,10 +91,10 @@ func WithAddr(addr string) ServerOption {
 	}
 }
 
-// WithMux
-func WithMux(m *Mux) ServerOption {
+// WithRouter
+func WithRouter(r Router) ServerOption {
 	return func(s *unsafeServer) {
-		s.mux = m
+		s.r = r
 	}
 }
 
@@ -230,7 +230,7 @@ func (s *unsafeServer) handleConn(ctx context.Context, conn net.Conn) error {
 
 		w := s.newWriter(conn, req)
 
-		if handle, ok := s.mux.matchRoute(req); ok {
+		if handle, ok := s.r.matchRoute(req); ok {
 			handle(w, req)
 
 			if err := w.writeResponse(); err != nil {

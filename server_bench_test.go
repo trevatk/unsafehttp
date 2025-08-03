@@ -13,8 +13,8 @@ var client = &http.Client{
 }
 
 func BenchmarkServerAllocationsGetUnsafeHTTP(b *testing.B) {
-	mux := NewServeMux()
-	mux.Get("/bench", func(w ResponseWriter, r *Request) {
+	r := NewRouter()
+	r.Get("/bench", func(w ResponseWriter, r *Request) {
 		for i := 0; i < 1000; i++ {
 			sha256.Sum256([]byte("hello world"))
 		}
@@ -23,7 +23,7 @@ func BenchmarkServerAllocationsGetUnsafeHTTP(b *testing.B) {
 		w.Write(data)
 	})
 	opts := []ServerOption{
-		WithMux(mux),
+		WithRouter(r),
 		WithMaxHeaderSize(16),
 		WithAddr("localhost:8082"),
 	}

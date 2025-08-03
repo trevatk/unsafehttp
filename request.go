@@ -27,6 +27,11 @@ func (r *Request) Context() context.Context {
 	return r.ctx
 }
 
+// WithContext
+func (r *Request) WithContext(ctx context.Context) {
+	r.ctx = ctx
+}
+
 func (s *unsafeServer) parseRequestFromBuf(buf *bufio.Reader) (*Request, error) {
 	r := s.requestPool.Get().(*Request)
 

@@ -11,6 +11,7 @@ import (
 type ResponseWriter interface {
 	SetStatus(StatusCode)
 	SetHeader(string, string)
+
 	Write([]byte) (int, error)
 }
 
