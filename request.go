@@ -10,34 +10,14 @@ import (
 	"strings"
 )
 
-const (
-	requestLineLen = 3
-)
-
-type readLine struct {
-	method  Method
-	target  string
-	version SupportedVersion
-}
-
-// Headers
-type Headers map[string]string
-
-func (h Headers) Set(key, value string) {
-	h[key] = value
-}
-
-// Params
-type Params map[string]string
-
 // Request
 type Request struct {
-	Method  Method
-	Version SupportedVersion
-	Path    string
-	Headers Headers
-	Params  Params
-	Body    []byte
+	Method  []byte
+	Version []byte
+	Path    []byte
+	Headers map[string]string
+	Params  map[string]string
+	Body    *bytes.Buffer
 
 	ctx context.Context
 }
@@ -47,113 +27,96 @@ func (r *Request) Context() context.Context {
 	return r.ctx
 }
 
-func parseRequestFromBuf(reader *bufio.Reader) (*Request, error) {
-	fl, err := reader.ReadBytes('\n')
+func (s *unsafeServer) parseRequestFromBuf(buf *bufio.Reader) (*Request, error) {
+	r := s.requestPool.Get().(*Request)
+
+	statusLine, err := buf.ReadBytes('\n')
 	if err != nil {
-		return nil, fmt.Errorf("buf.ReadBytes: %w", err)
+		if err == io.EOF {
+			return nil, err
+		}
+		return nil, fmt.Errorf("unable to first line in buffer: %w", err)
 	}
 
-	rl, err := parseStatusLine(fl)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse read line: %w", err)
+	// split status line
+	ss := bytes.Split(statusLine, []byte(" "))
+	r.Method = bytes.TrimSpace(ss[0])
+	r.Path = bytes.TrimSpace(ss[1])
+	r.Version = bytes.TrimSpace(ss[2])
+
+	// get pooled headers
+	headers := s.headerPool.Get().(map[string]string)
+	r.Headers = headers
+
+	if err := parseHeaders(buf, headers); err != nil {
+		// error found put request back to pool
+		s.putRequestPool(r)
+		return nil, err
 	}
 
-	headers, err := parseHeaders(reader)
+	body, err := s.extractRequestBody(headers, buf)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse header: %w", err)
+		s.putRequestPool(r)
+		return nil, err
 	}
+	r.Body = body
 
-	body, err := extractRequestBody(headers, reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract request body: %w", err)
-	}
-
-	return &Request{
-		Method:  rl.method,
-		Version: rl.version,
-		Path:    rl.target,
-		Headers: headers,
-		Params:  make(Params),
-		Body:    body,
-	}, nil
+	return r, nil
 }
 
-func parseStatusLine(line []byte) (readLine, error) {
-	lineAsStr := string(line)
-
-	// split line by SP
-	s := strings.Split(lineAsStr, " ")
-	if len(s) != requestLineLen {
-		return readLine{}, fmt.Errorf("invalid number of fields in first line %d", len(s))
-	}
-
-	method, ok := methodfromString(s[0])
-	if !ok {
-		return readLine{}, fmt.Errorf("unsupported method: %s", s[0])
-	}
-
-	ver, ok := httpVersionFromString(s[2])
-	if !ok {
-		return readLine{}, fmt.Errorf("unsupported http version: %s", s[2])
-	}
-
-	return readLine{
-		method:  method,
-		target:  strings.TrimSpace(s[1]),
-		version: ver,
-	}, nil
-}
-
-func parseHeaders(reader *bufio.Reader) (Headers, error) {
-	headers := make(map[string]string, 0)
-
+func parseHeaders(buf *bufio.Reader, headers map[string]string) error {
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := buf.ReadBytes('\n')
 		if err != nil {
-			return Headers{}, fmt.Errorf("buf.ReadBytes: %w", err)
+			return fmt.Errorf("buf.ReadBytes: %w", err)
 		}
 
-		// line is clrf
-		// end headers
-		if bytes.Equal(line, []byte("\r\n")) {
+		// line is "\r\n" which signifies the end of the headers
+		if len(line) == 2 && bytes.Equal(line, []byte{'\r', '\n'}) {
 			break
 		}
 
-		lineAsStr := string(line)
-		s := strings.Split(lineAsStr, ":")
+		// Find the index of the first colon
+		idx := bytes.IndexByte(line, ':')
+		if idx == -1 {
+			// Malformed header, could return an error or skip.
+			// For robustness, we will skip this line.
+			continue
+		}
 
-		key := strings.TrimSpace(s[0])
-		value := strings.TrimSpace(s[1])
-		headers[key] = value
+		// Extract and trim the key and value as byte slices
+		key := bytes.TrimSpace(line[:idx])
+		value := bytes.TrimSpace(line[idx+1:])
+
+		// Convert to string once for map storage
+		headers[string(key)] = string(value)
 	}
-
-	return headers, nil
+	return nil
 }
 
-func extractRequestBody(headers Headers, reader *bufio.Reader) ([]byte, error) {
+func (s *unsafeServer) extractRequestBody(headers map[string]string, buf *bufio.Reader) (*bytes.Buffer, error) {
+
+	bodyBuf := s.responseBufPool.Get().(*bytes.Buffer)
+	bodyBuf.Reset()
+
 	if contentLengthStr, ok := headers["Content-Length"]; ok {
-		contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64)
+		contentLength, err := strconv.ParseInt(strings.TrimSpace(contentLengthStr), 10, 64)
 		if err != nil {
+			s.responseBufPool.Put(bodyBuf)
 			return nil, fmt.Errorf("strconv.ParseInt: %w", err)
 		}
 
-		if contentLength < 0 {
-			return nil, fmt.Errorf("negative content length value %d", contentLength)
+		if contentLength <= 0 {
+			return bodyBuf, nil
 		}
 
-		if contentLength == 0 {
-			// request is likely a GET or HEAD
-			return nil, nil
-		}
+		if _, err := io.CopyN(bodyBuf, buf, contentLength); err != nil {
+			s.responseBufPool.Put(bodyBuf)
 
-		body := make([]byte, contentLength)
-		_, err = io.ReadFull(reader, body)
-		if err != nil {
-			return nil, fmt.Errorf("io.ReadFull: %w", err)
+			return nil, fmt.Errorf("io.CopyN: %w", err)
 		}
-
-		return body, nil
+		return bodyBuf, nil
 	}
 
-	return nil, nil
+	return bodyBuf, nil
 }
