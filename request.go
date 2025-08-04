@@ -32,8 +32,8 @@ func (r *Request) WithContext(ctx context.Context) {
 	r.ctx = ctx
 }
 
-func (s *unsafeServer) parseRequestFromBuf(buf *bufio.Reader) (*Request, error) {
-	r := s.requestPool.Get().(*Request)
+func (us *unsafeServer) parseRequestFromBuf(buf *bufio.Reader) (*Request, error) {
+	r := us.requestPool.Get().(*Request)
 
 	statusLine, err := buf.ReadBytes('\n')
 	if err != nil {
@@ -49,19 +49,23 @@ func (s *unsafeServer) parseRequestFromBuf(buf *bufio.Reader) (*Request, error) 
 	r.Path = bytes.TrimSpace(ss[1])
 	r.Version = bytes.TrimSpace(ss[2])
 
+	if !bytes.Equal(r.Version, HTTP1) && !bytes.Equal(r.Version, HTTP1_1) {
+		return nil, ErrUnsupportedHttpVersion
+	}
+
 	// get pooled headers
-	headers := s.headerPool.Get().(map[string]string)
+	headers := us.headerPool.Get().(map[string]string)
 	r.Headers = headers
 
 	if err := parseHeaders(buf, headers); err != nil {
 		// error found put request back to pool
-		s.putRequestPool(r)
+		us.putRequestPool(r)
 		return nil, err
 	}
 
-	body, err := s.extractRequestBody(headers, buf)
+	body, err := us.extractRequestBody(headers, buf)
 	if err != nil {
-		s.putRequestPool(r)
+		us.putRequestPool(r)
 		return nil, err
 	}
 	r.Body = body
@@ -99,29 +103,33 @@ func parseHeaders(buf *bufio.Reader, headers map[string]string) error {
 	return nil
 }
 
-func (s *unsafeServer) extractRequestBody(headers map[string]string, buf *bufio.Reader) (*bytes.Buffer, error) {
+func (us *unsafeServer) extractRequestBody(headers map[string]string, buf *bufio.Reader) (*bytes.Buffer, error) {
 
-	bodyBuf := s.responseBufPool.Get().(*bytes.Buffer)
-	bodyBuf.Reset()
+	bb := us.responseBufPool.Get().(*bytes.Buffer)
+	bb.Reset()
 
 	if contentLengthStr, ok := headers["Content-Length"]; ok {
 		contentLength, err := strconv.ParseInt(strings.TrimSpace(contentLengthStr), 10, 64)
 		if err != nil {
-			s.responseBufPool.Put(bodyBuf)
+			us.responseBufPool.Put(bb)
 			return nil, fmt.Errorf("strconv.ParseInt: %w", err)
 		}
 
 		if contentLength <= 0 {
-			return bodyBuf, nil
+			return bb, nil
 		}
 
-		if _, err := io.CopyN(bodyBuf, buf, contentLength); err != nil {
-			s.responseBufPool.Put(bodyBuf)
+		if contentLength > int64(us.maxBodySize) {
+			return nil, ErrRequestBodyTooLarge
+		}
+
+		if _, err := io.CopyN(bb, buf, contentLength); err != nil {
+			us.responseBufPool.Put(bb)
 
 			return nil, fmt.Errorf("io.CopyN: %w", err)
 		}
-		return bodyBuf, nil
+		return bb, nil
 	}
 
-	return bodyBuf, nil
+	return bb, nil
 }

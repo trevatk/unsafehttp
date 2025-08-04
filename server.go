@@ -21,7 +21,7 @@ type Server interface {
 }
 
 type unsafeServer struct {
-	r Router
+	r *router
 
 	bufPool         sync.Pool
 	writerPool      sync.Pool
@@ -34,6 +34,15 @@ type unsafeServer struct {
 	addr string
 
 	maxHeaderSize int
+	maxBodySize   int64
+
+	// concurrency
+	numWorkers int
+
+	// connection deadlines
+	connReadTimeout  time.Duration
+	connWriteTimeout time.Duration
+	connTimeout      time.Duration
 }
 
 // NewServer
@@ -41,6 +50,13 @@ func NewServer(opts ...ServerOption) Server {
 	var unsafe unsafeServer
 	// set defaults
 	unsafe.maxHeaderSize = 16
+	unsafe.numWorkers = runtime.NumCPU()
+	unsafe.maxBodySize = 10000000
+
+	unsafe.connReadTimeout = time.Second * 15
+	unsafe.connWriteTimeout = time.Second * 15
+	unsafe.connTimeout = time.Second * 60
+
 	for _, opt := range opts {
 		opt(&unsafe)
 	}
@@ -86,46 +102,78 @@ func NewServer(opts ...ServerOption) Server {
 
 // WithAddr
 func WithAddr(addr string) ServerOption {
-	return func(s *unsafeServer) {
-		s.addr = addr
+	return func(us *unsafeServer) {
+		us.addr = addr
 	}
 }
 
 // WithRouter
 func WithRouter(r Router) ServerOption {
-	return func(s *unsafeServer) {
-		s.r = r
+	return func(us *unsafeServer) {
+		us.r = r.(*router)
 	}
 }
 
 // WithMaxHeaderSize
 func WithMaxHeaderSize(headerSize int) ServerOption {
-	return func(s *unsafeServer) {
-		s.maxHeaderSize = headerSize
+	return func(us *unsafeServer) {
+		us.maxHeaderSize = headerSize
+	}
+}
+
+func WithMaxBodySize(bodySize int64) ServerOption {
+	return func(us *unsafeServer) {
+		us.maxBodySize = bodySize
+	}
+}
+
+// WithConcurrency
+func WithConcurrency(numWorkers int) ServerOption {
+	return func(us *unsafeServer) {
+		us.numWorkers = numWorkers
+	}
+}
+
+// WithConnTimeout
+func WithConnTimeout(timeout time.Duration) ServerOption {
+	return func(us *unsafeServer) {
+		us.connTimeout = timeout
+	}
+}
+
+// WithConnReadTimeout
+func WithConnReadTimeout(timeout time.Duration) ServerOption {
+	return func(us *unsafeServer) {
+		us.connReadTimeout = timeout
+	}
+}
+
+// WithConnWriteTimeout
+func WithConnWriteTimeout(timeout time.Duration) ServerOption {
+	return func(us *unsafeServer) {
+		us.connWriteTimeout = timeout
 	}
 }
 
 // Serve
-func (s *unsafeServer) Serve(ctx context.Context) error {
-	addr, err := net.ResolveTCPAddr("tcp", s.addr)
+func (us *unsafeServer) Serve(ctx context.Context) error {
+	addr, err := net.ResolveTCPAddr("tcp", us.addr)
 	if err != nil {
 		return fmt.Errorf("net.ResolveTCPAddr: %w", err)
 	}
 
 	lis, err := net.ListenTCP("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("net.Listen: %s %v", s.addr, err)
+		return fmt.Errorf("net.Listen: %s %v", us.addr, err)
 	}
 
-	return s.listen(ctx, lis)
+	return us.listen(ctx, lis)
 }
 
-func (s *unsafeServer) listen(ctx context.Context, lis *net.TCPListener) error {
+func (us *unsafeServer) listen(ctx context.Context, lis *net.TCPListener) error {
 	var wg sync.WaitGroup
 
-	numWorkers := runtime.NumCPU()
-	fmt.Println(numWorkers)
-	ch := make(chan net.Conn, numWorkers)
+	ch := make(chan net.Conn, us.numWorkers)
 
 	go func() {
 		<-ctx.Done()
@@ -133,9 +181,9 @@ func (s *unsafeServer) listen(ctx context.Context, lis *net.TCPListener) error {
 		lis.Close()
 	}()
 
-	for range numWorkers {
+	for range us.numWorkers {
 		wg.Add(1)
-		go s.handleConnWorker(ctx, ch, &wg)
+		go us.handleConnWorker(ctx, ch, &wg)
 	}
 
 	for {
@@ -162,26 +210,7 @@ func (s *unsafeServer) listen(ctx context.Context, lis *net.TCPListener) error {
 			continue
 		}
 
-		if err := conn.SetReadDeadline(time.Now().Add(time.Second * 15)); err != nil {
-			conn.Close()
-			continue
-		}
-
 		ch <- conn
-
-		// go func() {
-		// 	defer wg.Done()
-		// 	if err := s.handleConn(ctx, conn, &wg); err != nil {
-		// 		switch err {
-		// 		case ErrUnsupportedHttpVersion:
-		// 			writeError(conn, StatusHTTPVersionNotSupported)
-		// 		case ErrRouteNotFound:
-		// 			writeError(conn, StatusNotFound)
-		// 		default:
-		// 			writeError(conn, StatusInternalServer)
-		// 		}
-		// 	}
-		// }()
 	}
 
 SHUTDOWN:
@@ -190,66 +219,79 @@ SHUTDOWN:
 	return nil
 }
 
-func (s *unsafeServer) handleConnWorker(ctx context.Context, ch chan net.Conn, wg *sync.WaitGroup) error {
+func (us *unsafeServer) handleConnWorker(ctx context.Context, ch chan net.Conn, wg *sync.WaitGroup) error {
 	defer wg.Done()
 	for conn := range ch {
-		if err := s.handleConn(ctx, conn); err != nil {
+		if err := us.handleConn(ctx, conn); err != nil {
 			writeError(conn, StatusInternalServer)
 		}
 	}
 	return nil
 }
 
-func (s *unsafeServer) handleConn(ctx context.Context, conn net.Conn) error {
+func (us *unsafeServer) handleConn(ctx context.Context, conn net.Conn) error {
 	defer conn.Close()
 
-	buf := s.bufPool.Get().(*bufio.Reader)
+	buf := us.bufPool.Get().(*bufio.Reader)
 	buf.Reset(conn)
 
 	defer func() {
 		buf.Reset(nil)
-		s.bufPool.Put(buf)
+		us.bufPool.Put(buf)
 	}()
 
 	for {
-		if err := conn.SetReadDeadline(time.Now().Add(time.Second * 15)); err != nil {
+
+		conn.SetDeadline(time.Now().Add(us.connTimeout))
+		if err := conn.SetReadDeadline(time.Now().Add(us.connReadTimeout)); err != nil {
 			return err
 		}
 
-		req, err := s.parseRequestFromBuf(buf)
+		conn.SetWriteDeadline(time.Now().Add(us.connWriteTimeout))
+
+		req, err := us.parseRequestFromBuf(buf)
 		if err != nil {
 			if req != nil {
-				s.putRequestPool(req)
+				us.putRequestPool(req)
 			}
 			if err == io.EOF {
 				return nil
 			}
-			return err
+			switch err {
+			case ErrRequestBodyTooLarge:
+				writeError(conn, StatusRequestEntityTooLarge)
+			case ErrUnsupportedHttpVersion:
+				writeError(conn, StatusHTTPVersionNotSupported)
+			default:
+				writeError(conn, StatusInternalServer)
+			}
 		}
 		req.ctx = ctx
 
-		w := s.newWriter(conn, req)
+		w := us.newWriter(conn, req)
 
-		if handle, ok := s.r.matchRoute(req); ok {
-			handle(w, req)
+		if handle, ok := us.r.matchRoute(req); ok {
+			handle.ServeHTTP(w, req)
 
 			if err := w.writeResponse(); err != nil {
 				writeError(w.conn, StatusInternalServer)
 			}
+		} else {
+			writeError(conn, StatusNotFound)
 		}
 
-		s.putWriterPool(w)
-		s.putRequestPool(req)
+		us.putWriterPool(w)
+		us.putRequestPool(req)
 	}
 }
 
-func (s *unsafeServer) newWriter(conn net.Conn, request *Request) *writer {
-	w := s.writerPool.Get().(*writer)
+func (us *unsafeServer) newWriter(conn net.Conn, request *Request) *writer {
+	w := us.writerPool.Get().(*writer)
 
-	buf := s.responseBufPool.Get().(*bytes.Buffer)
+	buf := us.responseBufPool.Get().(*bytes.Buffer)
 	buf.Reset()
 
-	headers := s.responseHeaderPool.Get().(map[string]string)
+	headers := us.responseHeaderPool.Get().(map[string]string)
 	w.headers = headers
 
 	w.conn = conn
@@ -261,28 +303,28 @@ func (s *unsafeServer) newWriter(conn net.Conn, request *Request) *writer {
 	return w
 }
 
-func (s *unsafeServer) putWriterPool(w *writer) {
+func (us *unsafeServer) putWriterPool(w *writer) {
 
 	if w.headers != nil {
 		for key := range w.headers {
 			delete(w.headers, key)
 		}
-		s.responseHeaderPool.Put(w.headers)
+		us.responseHeaderPool.Put(w.headers)
 	}
 
 	if w.body != nil {
 		w.body.Reset()
-		s.responseBufPool.Put(w.body)
+		us.responseBufPool.Put(w.body)
 	}
 
 	w.conn = nil
 	w.req = nil
 	w.body = nil
 
-	s.writerPool.Put(w)
+	us.writerPool.Put(w)
 }
 
-func (s *unsafeServer) putRequestPool(r *Request) {
+func (us *unsafeServer) putRequestPool(r *Request) {
 	if r == nil {
 		return
 	}
@@ -291,13 +333,13 @@ func (s *unsafeServer) putRequestPool(r *Request) {
 		for k := range r.Headers {
 			delete(r.Headers, k)
 		}
-		s.headerPool.Put(r.Headers)
+		us.headerPool.Put(r.Headers)
 	}
 
 	r.ctx = nil
 	if r.Body != nil {
 		r.Body.Reset()
-		s.responseBufPool.Put(r.Body)
+		us.responseBufPool.Put(r.Body)
 	}
 	r.Body = nil
 
@@ -306,7 +348,7 @@ func (s *unsafeServer) putRequestPool(r *Request) {
 	r.Path = nil
 	r.Version = nil
 
-	s.requestPool.Put(r)
+	us.requestPool.Put(r)
 }
 
 func writeError(conn net.Conn, code StatusCode) {

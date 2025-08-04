@@ -1,6 +1,8 @@
 package unsafehttp
 
-import "bytes"
+import (
+	"bytes"
+)
 
 // WalkFunc
 type WalkFunc func(string, string, HandlerFunc)
@@ -52,7 +54,7 @@ func NewRouter() Router {
 		root: &route{
 			children: make(map[byte]*route),
 		},
-		prefix: "",
+		prefix: "/",
 		mws:    make([]Middleware, 0),
 	}
 }
@@ -65,31 +67,31 @@ func (r *router) Use(mws ...Middleware) {
 // Get
 func (r *router) Get(pattern string, handler HandlerFunc) {
 	handler = chain(handler, r.mws)
-	r.addRoute(r.root, r.prefix+pattern, "GET", handler)
+	r.addRoute(r.root, pattern, "GET", handler)
 }
 
 // Post
 func (r *router) Post(pattern string, handler HandlerFunc) {
 	handler = chain(handler, r.mws)
-	r.addRoute(r.root, r.prefix+pattern, "POST", handler)
+	r.addRoute(r.root, pattern, "POST", handler)
 }
 
 // Put
 func (r *router) Put(pattern string, handler HandlerFunc) {
 	handler = chain(handler, r.mws)
-	r.addRoute(r.root, r.prefix+pattern, "PUT", handler)
+	r.addRoute(r.root, pattern, "PUT", handler)
 }
 
 // Patch
 func (r *router) Patch(pattern string, handler HandlerFunc) {
 	handler = chain(handler, r.mws)
-	r.addRoute(r.root, r.prefix+pattern, "PATCH", handler)
+	r.addRoute(r.root, pattern, "PATCH", handler)
 }
 
 // Delete
 func (r *router) Delete(pattern string, handler HandlerFunc) {
 	handler = chain(handler, r.mws)
-	r.addRoute(r.root, r.prefix+pattern, "DELETE", handler)
+	r.addRoute(r.root, pattern, "DELETE", handler)
 }
 
 func (r *router) addRoute(node *route, pattern string, method string, handlerFn HandlerFunc) *route {
@@ -112,17 +114,17 @@ func (r *router) addRoute(node *route, pattern string, method string, handlerFn 
 		return node
 	}
 
-	battern := []byte(pattern)
+	p := []byte(pattern)
 
-	cpl := commonPrefix(node.pattern, battern)
+	cpl := commonPrefix(node.pattern, p)
 
 	if cpl < len(node.pattern) {
 		// pattern matches the nodes pattern
 		// need to split current node
-		return splitRoute(node, battern, method, handlerFn, cpl)
+		return splitRoute(node, p, method, handlerFn, cpl)
 	}
 
-	if cpl == len(node.pattern) && cpl < len(pattern) {
+	if cpl == len(node.pattern) && cpl < len(p) {
 		// pattern included in node pattern
 		// continue to next level
 		p := pattern[cpl:]
@@ -130,7 +132,7 @@ func (r *router) addRoute(node *route, pattern string, method string, handlerFn 
 		return node
 	}
 
-	if cpl == len(node.pattern) && cpl == len(pattern) {
+	if cpl == len(node.pattern) && cpl == len(p) {
 		// pattern and node pattern are the same
 		// update values
 		node.isLeaf = true
@@ -166,7 +168,6 @@ func (r *router) matchRoute(req *Request) (HandlerFunc, bool) {
 
 		if cpl == len(n.pattern) && cpl == len(pattern) {
 			if bytes.Equal(n.method, req.Method) {
-				// match found
 				return n.handler, true
 			}
 		}
@@ -193,7 +194,7 @@ func (r *router) matchRoute(req *Request) (HandlerFunc, bool) {
 
 // Walk
 func (r *router) Walk(fn WalkFunc) {
-	r.root.walk("", fn)
+	r.root.walk("/", fn)
 }
 
 func (ro *route) walk(path string, fn WalkFunc) {
@@ -203,7 +204,7 @@ func (ro *route) walk(path string, fn WalkFunc) {
 
 	p := path + string(ro.pattern)
 	if ro.isLeaf {
-		fn(string(ro.method), p, ro.handler)
+		fn(string(ro.pattern), string(ro.method), ro.handler)
 	}
 
 	for _, child := range ro.children {
@@ -216,6 +217,7 @@ func splitRoute(node *route, pattern []byte, method string, handlerFn HandlerFun
 		pattern:  node.pattern[:commonPrefixLength],
 		children: make(map[byte]*route),
 		method:   []byte(method),
+		handler:  handlerFn,
 	}
 
 	// existing node becomes child of new node

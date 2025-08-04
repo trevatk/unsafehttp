@@ -61,18 +61,15 @@ func main() {
 	}()
 
 	r := unsafehttp.NewRouter()
-	r.Group("/api/1.0", func(rr unsafehttp.Router) {
+	r.Group("api/1.0", func(rr unsafehttp.Router) {
 		rr.Group("/users", func(users unsafehttp.Router) {
 			users.Post("/", postCreateUser)
-			rr.Walk(func(s1, s2 string, hf unsafehttp.HandlerFunc) {
-				fmt.Printf("%s %s\n", s1, s2)
-			})
 		})
 	})
-	r.Get("/health", health)
+	r.Get("health", health)
 
 	r.Walk(func(s1, s2 string, hf unsafehttp.HandlerFunc) {
-		fmt.Printf("method: %s, pattern: %s\n", s1, s1)
+		fmt.Printf("pattern: %s, method: %s\n", s1, s2)
 	})
 
 	serverOpts := []unsafehttp.ServerOption{

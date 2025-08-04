@@ -22,26 +22,36 @@ func (r *router) Group(pattern string, fn GroupFunc) {
 
 // Get
 func (g *group) Get(pattern string, handler HandlerFunc) {
+	handler = chain(handler, g.mws)
+	handler = chain(handler, g.router.mws)
 	g.router.addRoute(g.router.root, g.prefix+pattern, "GET", handler)
 }
 
 // Post
 func (g *group) Post(pattern string, handler HandlerFunc) {
-	g.router.addRoute(g.router.root, pattern, "POST", handler)
+	handler = chain(handler, g.mws)
+	handler = chain(handler, g.router.mws)
+	g.router.addRoute(g.router.root, g.prefix+pattern, "POST", handler)
 }
 
 // Put
 func (g *group) Put(pattern string, handler HandlerFunc) {
+	handler = chain(handler, g.mws)
+	handler = chain(handler, g.router.mws)
 	g.router.addRoute(g.router.root, g.prefix+pattern, "PUT", handler)
 }
 
 // Patch
 func (g *group) Patch(pattern string, handler HandlerFunc) {
+	handler = chain(handler, g.mws)
+	handler = chain(handler, g.router.mws)
 	g.router.addRoute(g.router.root, g.prefix+pattern, "PATCH", handler)
 }
 
 // Delete
 func (g *group) Delete(pattern string, handler HandlerFunc) {
+	handler = chain(handler, g.mws)
+	handler = chain(handler, g.router.mws)
 	g.router.addRoute(g.router.root, g.prefix+pattern, "DELETE", handler)
 }
 
@@ -50,7 +60,7 @@ func (g *group) Group(pattern string, fn GroupFunc) {
 	gg := &group{
 		router: g.router,
 		prefix: g.prefix + pattern,
-		mws:    g.mws,
+		mws:    make([]Middleware, 0),
 	}
 
 	fn(gg)
