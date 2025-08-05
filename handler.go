@@ -5,11 +5,9 @@ type Handler interface {
 	ServeHTTP(ResponseWriter, *Request)
 }
 
-type handler struct {
-	fn func(ResponseWriter, *Request)
-}
+type HandlerFunc func(ResponseWriter, *Request)
 
 // ServeHTTP
-func (h *handler) ServeHTTP(w ResponseWriter, r *Request) {
-	h.fn(w, r)
+func (fn HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) {
+	fn(w, r)
 }

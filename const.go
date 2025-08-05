@@ -1,7 +1,5 @@
 package unsafehttp
 
-import "strings"
-
 // Method
 type Method string
 
@@ -93,29 +91,6 @@ func (sc StatusCode) String() string {
 		return "http version not supported"
 	default:
 		return "ok"
-	}
-}
-
-func methodfromString(s string) (Method, bool) {
-	switch strings.ToLower(s) {
-	case "get":
-		return MethodGet, true
-	case "post":
-		return MethodPost, true
-	case "put":
-		return MethodPut, true
-	case "patch":
-		return MethodPatch, true
-	case "delete":
-		return MethodDelete, true
-	case "head":
-		return MethodHead, true
-	case "options":
-		return MethodOptions, true
-	case "connect":
-		return MethodConnect, true
-	default:
-		return "", false
 	}
 }
 
